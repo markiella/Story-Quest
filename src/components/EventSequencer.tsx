@@ -4,12 +4,13 @@ import { Check, X, Undo2 } from 'lucide-react';
 import type { Story, UserProfile } from '../types';
 import UserProfileHeader from './UserProfileHeader';
 import { useAudio } from '../hooks/useAudio';
+import StoryCompanion from './StoryCompanion';
 
 interface Props {
   story:    Story;
   profile:  UserProfile;
   score:    number;
-  onComplete:      (earnedPoints: number) => void;
+  onComplete:      (earnedPoints: number, placedSlots: (string | null)[]) => void;
   onBack:          () => void;
   onLogout?:       () => void;
   /** Restore shuffled order from a saved session */
@@ -129,7 +130,7 @@ export default function EventSequencer({
     else            audio.playError();
     setFeedback(base >= 50 ? 'correct' : 'wrong');
     setSubmitted(true);
-    timeoutRef.current = setTimeout(() => onComplete(base), 1700);
+    timeoutRef.current = setTimeout(() => onComplete(base, slots), 1700);
   }
 
   // Clear the auto-advance timeout if the student navigates away before it fires
@@ -145,25 +146,43 @@ export default function EventSequencer({
     <div className="bg-landscape min-h-dvh flex flex-col pb-10 w-full relative">
       <UserProfileHeader profile={profile} score={score} onLogout={onLogout} />
 
-      <div className="w-full flex justify-center items-center mt-6 md:mt-12 px-4 flex-1">
-        <motion.div 
-          className="wood-board w-11/12 md:w-full max-w-4xl p-4 md:p-6 pt-10 md:pt-12 flex flex-col h-fit my-8"
-          initial={{ opacity: 0, scale: 0.95 }}
-          animate={{ opacity: 1, scale: 1 }}
-        >
+      <div className="flex-1 flex items-center justify-center w-full px-4 md:px-8 py-6 my-auto">
+        <div className="flex flex-col lg:flex-row items-center justify-center gap-6 lg:gap-10 max-w-6xl mx-auto w-full">
+          {/* Left side: Prominent Mascot Companion in Thinking pose */}
+          <motion.div
+            className="shrink-0 flex justify-center items-center"
+            initial={{ scale: 0.8, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            transition={{ type: 'spring', stiffness: 180, damping: 20 }}
+          >
+            <StoryCompanion
+              emotion="thinking"
+              size="hero"
+              speech="Think about the correct sequence..."
+            />
+          </motion.div>
+
+          {/* Centered Main Sequencer Wood Board */}
+          <motion.div 
+            className="wood-board flex-1 w-full max-w-5xl p-6 md:p-8 pt-14 md:pt-16 flex flex-col h-fit relative z-10 shadow-2xl"
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+          >
           {/* Ribbon Header */}
-          <div className="absolute -top-5 md:-top-6 left-1/2 -translate-x-1/2 ribbon-blue text-sm md:text-xl z-10 px-4 md:px-8 whitespace-nowrap">
+          <div className="absolute -top-6 left-1/2 -translate-x-1/2 ribbon-blue text-sm md:text-xl z-20 px-6 md:px-10 whitespace-nowrap shadow-lg">
             Arrange the Events in Order
           </div>
 
           {/* Slots & Selection Area */}
           <div className="flex flex-col md:flex-row gap-4 md:gap-6 mt-4 md:mt-2 flex-1">
             
-            {/* Event Bank (Left Side) */}
+            {/* Event Bank (Left Side inside Board) */}
             <div className="flex-1 parchment-inner p-3 md:p-4">
-              <h3 className="font-fredoka text-[#4a2e12] mb-2 md:mb-3 text-center border-b-2 border-[#8c5825]/30 pb-2 text-sm md:text-base">
-                Event Bank
-              </h3>
+              <div className="border-b-2 border-[#8c5825]/30 pb-2 mb-2 md:mb-3 text-center">
+                <h3 className="font-fredoka text-[#4a2e12] text-sm md:text-lg">
+                  Event Bank
+                </h3>
+              </div>
               <div className="flex flex-col gap-2 md:gap-3">
                 {shuffledEvents.map((ev, idx) => {
                   const placed = isPlaced(ev.id);
@@ -174,13 +193,13 @@ export default function EventSequencer({
                       key={ev.id}
                       onClick={() => handleCardClick(ev.id)}
                       disabled={placed}
-                      className={`seq-block text-left relative ${ev.color} !p-2 md:!p-4
+                      className={`seq-block text-left relative ${ev.color} !p-2.5 md:!p-4 tv-projector-card
                         ${placed ? 'opacity-30 grayscale' : 'hover:scale-[1.02] active:scale-[0.98] cursor-pointer'}
                         ${selected ? 'ring-4 ring-yellow-400 ring-offset-2' : ''}`}
                       whileTap={!placed ? { scale: 0.95 } : {}}
                     >
-                      <div className="font-fredoka text-xs md:text-sm mb-0.5 md:mb-1 opacity-80">Event {String.fromCharCode(65 + idx)}</div>
-                      <div className="font-nunito text-xs md:text-base font-bold leading-tight line-clamp-2 md:line-clamp-3 shadow-sm">
+                      <div className="font-fredoka text-xs md:text-sm mb-0.5 md:mb-1 opacity-90">Event {String.fromCharCode(65 + idx)}</div>
+                      <div className="font-nunito text-xs md:text-base lg:text-lg font-bold leading-snug line-clamp-2 md:line-clamp-3 shadow-sm">
                         {ev.text}
                       </div>
                       
@@ -204,27 +223,27 @@ export default function EventSequencer({
                 return (
                   <div key={i} className="flex items-center gap-2 md:gap-3">
                     {/* Rank Number */}
-                    <div className="w-8 h-8 md:w-12 md:h-12 flex-shrink-0 bg-[#ffeebd] border-[3px] md:border-4 border-[#8c5825] rounded-md md:rounded-lg flex items-center justify-center font-fredoka text-base md:text-xl text-[#4a2e12] shadow-sm">
+                    <div className="w-8 h-8 md:w-12 md:h-12 flex-shrink-0 bg-[#ffeebd] border-[3px] md:border-4 border-[#8c5825] rounded-md md:rounded-lg flex items-center justify-center font-fredoka text-base md:text-2xl text-[#4a2e12] shadow-sm">
                       {i + 1}
                     </div>
                     
                     {/* Slot Drop Zone */}
                     <div 
                       onClick={() => slotId ? handleSlotRemove(i) : handleSlotClick(i)}
-                      className={`flex-1 min-h-14 md:min-h-20 rounded-md md:rounded-lg border-[3px] md:border-4 transition-all flex items-center px-2 md:px-3 cursor-pointer gap-2 overflow-hidden
+                      className={`flex-1 min-h-14 md:min-h-20 rounded-md md:rounded-lg border-[3px] md:border-4 transition-all flex items-center px-2 md:px-4 cursor-pointer gap-2 overflow-hidden
                         ${isTarget ? 'border-[#429ef5] bg-[#429ef5]/20 slot-active' : ''}
                         ${!slotId && !isTarget ? 'border-dashed border-[#8c5825]/50 bg-black/10' : ''}
                         ${slotId ? `border-transparent ${placedData?.color} shadow-lg hover:brightness-110 active:scale-95` : ''}`}
                     >
                       {placedData ? (
                         <>
-                          <p className="font-nunito text-white font-bold leading-tight line-clamp-2 flex-1 text-[10px] md:text-sm">
+                          <p className="font-nunito text-white font-bold leading-snug line-clamp-2 flex-1 text-xs md:text-base lg:text-lg">
                             {placedData.text}
                           </p>
-                          <X size={14} className="flex-shrink-0 text-white/70 md:w-[16px] md:h-[16px]" />
+                          <X size={16} className="flex-shrink-0 text-white/70 md:w-[20px] md:h-[20px]" />
                         </>
                       ) : (
-                        <span className="font-nunito text-[#4a2e12]/60 font-bold w-full text-center text-xs md:text-base">
+                        <span className="font-nunito text-[#4a2e12]/70 font-bold w-full text-center text-xs md:text-base lg:text-lg">
                           {isTarget ? 'Tap to place!' : 'Empty Slot'}
                         </span>
                       )}
@@ -288,6 +307,7 @@ export default function EventSequencer({
           </AnimatePresence>
           
         </motion.div>
+        </div>
       </div>
     </div>
   );

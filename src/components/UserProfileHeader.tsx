@@ -9,7 +9,7 @@ interface Props {
 
 export default function UserProfileHeader({ profile, score, onLogout }: Props) {
   return (
-    <div className="w-full flex justify-center mt-2 md:mt-6 lg:mt-8 mb-2 px-2 md:px-8 sticky top-2 md:top-6 z-50 pointer-events-none">
+    <div className="w-full flex justify-center mt-2 md:mt-4 lg:mt-6 mb-2 px-2 md:px-8 sticky top-2 md:top-4 z-50 pointer-events-none">
       <div className="flex items-center justify-between w-11/12 md:w-full max-w-6xl">
 
         {/* Profile Pill */}
@@ -35,6 +35,12 @@ export default function UserProfileHeader({ profile, score, onLogout }: Props) {
               <LogOut size={12} className="md:w-[14px] md:h-[14px]" />
             </button>
           )}
+        </div>
+
+        {/* Center Logo Branding */}
+        <div className="hidden sm:flex items-center gap-2 bg-[#4a2e12]/90 backdrop-blur-sm border-2 border-[#8c5825] rounded-full px-3.5 py-1 md:py-1.5 shadow-lg pointer-events-auto select-none">
+          <img src="/logo1.png" alt="Story Quest Logo" className="w-6 h-6 md:w-7 md:h-7 object-contain drop-shadow" />
+          <span className="font-fredoka text-white text-xs md:text-sm tracking-wider">Story Quest</span>
         </div>
 
         {/* Score Pill */}

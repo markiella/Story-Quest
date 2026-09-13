@@ -48,7 +48,7 @@ export interface StoryData {
   category: Category;
   title: string;
   author?: string;
-  gradeLevel: [5, 6] | [5] | [6];
+  gradeLevel: number[];
   summary: string;
   story: string;
   storySteps: StoryStep[];
@@ -87,6 +87,7 @@ export interface AppSession {
   storyId: string | null;
   score: number;
   lastEarned: number;
+  lastPlacedSlots?: (string | null)[] | null;
   audio: boolean;
   sequencerProgress: SequencerProgress | null;
   // ─── Online session fields ─────────────────────────────────────────────────
@@ -106,6 +107,7 @@ export interface AppSession {
 export interface ClassroomParticipant {
   studentId: string;
   name: string;
+  studentCode: string; // Teacher-assigned or generated access code e.g. "SQ-8K2P"
   /**
    * 'joined'    — student has joined but not yet submitted
    * 'playing'   — reserved for future backend (e.g. websocket status push)
@@ -132,6 +134,7 @@ export interface CreateSessionParams {
   grade: GradeLevel;
   category: Category;
   storyId: string;
+  roster?: { name: string; studentCode: string }[];
 }
 
 export interface JoinSessionResult {
@@ -144,18 +147,13 @@ export interface JoinSessionResult {
 
 /**
  * Service contract for classroom session management.
- *
- * To upgrade from MockSessionService to a real backend (Firebase, Supabase,
- * Laravel, WebSocket): implement this interface and replace the export in
- * src/services/classroomSession.ts — no UI component code needs to change.
  */
 export interface ISessionService {
   createSession(params: CreateSessionParams): Promise<ClassroomSession>;
   /**
-   * @param existingStudentId — provide on re-join (e.g. after page refresh)
-   *   to avoid creating a duplicate participant entry.
+   * Join classroom session using session code, student name, and student access code.
    */
-  joinSession(code: string, name: string, existingStudentId?: string): Promise<JoinSessionResult>;
+  joinSession(code: string, name: string, studentCode: string, existingStudentId?: string): Promise<JoinSessionResult>;
   submitScore(code: string, studentId: string, score: number): Promise<void>;
   getLiveResults(code: string): Promise<ClassroomSession | null>;
   endSession(code: string): Promise<void>;

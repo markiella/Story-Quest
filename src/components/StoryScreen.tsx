@@ -6,6 +6,7 @@ import type { Category, Story, UserProfile } from '../types';
 import UserProfileHeader from './UserProfileHeader';
 import { useAudio } from '../hooks/useAudio';
 import type { NarrationState } from '../hooks/useAudio';
+import StoryCompanion from './StoryCompanion';
 
 interface Props {
   profile: UserProfile;
@@ -43,12 +44,28 @@ export default function StoryScreen({ profile, score, category, onStorySelected,
     <div className="bg-landscape w-full flex flex-col min-h-dvh">
       <UserProfileHeader profile={profile} score={score} onLogout={onLogout} />
 
-      <div className="flex-1 flex flex-col items-center justify-center px-4 py-8 gap-4">
-        <motion.div 
-          className="wood-board w-11/12 md:w-full max-w-4xl p-4 md:p-10 pt-14 md:pt-16"
-          initial={{ opacity: 0, y: 30 }}
-          animate={{ opacity: 1, y: 0 }}
-        >
+      <div className="flex-1 flex items-center justify-center w-full px-4 md:px-8 py-6 my-auto">
+        <div className="flex flex-col lg:flex-row items-center justify-center gap-6 lg:gap-10 max-w-6xl mx-auto w-full">
+          {/* Left Side Mascot Companion — Happy expression for Story Selection */}
+          <motion.div
+            className="shrink-0 flex justify-center items-center"
+            initial={{ scale: 0.8, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            transition={{ type: 'spring', stiffness: 180, damping: 20 }}
+          >
+            <StoryCompanion
+              emotion="happy"
+              size="hero"
+              speech="Choose a story to read!"
+            />
+          </motion.div>
+
+          {/* Centered Main Story List Board */}
+          <motion.div 
+            className="wood-board flex-1 w-full max-w-5xl p-6 md:p-10 pt-16 pb-8 shadow-2xl"
+            initial={{ opacity: 0, y: 30 }}
+            animate={{ opacity: 1, y: 0 }}
+          >
           {/* Ribbon Header */}
           <div className="absolute -top-5 md:-top-6 left-1/2 -translate-x-1/2 ribbon-blue text-lg md:text-xl px-6 md:px-10 z-10 flex flex-nowrap items-center gap-2 md:gap-3 whitespace-nowrap min-w-max max-w-[90vw] overflow-hidden">
             <BookOpen size={20} className="md:w-[28px] md:h-[28px] opacity-90 flex-shrink-0" />
@@ -56,7 +73,7 @@ export default function StoryScreen({ profile, score, category, onStorySelected,
           </div>
 
           {/* Story list */}
-          <div className="max-h-[55vh] md:max-h-[60vh] overflow-y-auto pr-1 mt-2 mb-2 md:mb-0 space-y-3 md:space-y-4">
+          <div className="max-h-[50vh] md:max-h-[55vh] overflow-y-auto pr-1 mt-2 mb-4 space-y-3 md:space-y-4">
             {categoryStories.map((story, i) => (
               <motion.button
                 key={story.id}
@@ -84,16 +101,17 @@ export default function StoryScreen({ profile, score, category, onStorySelected,
               </motion.button>
             ))}
           </div>
-        </motion.div>
 
-        {/* Back Button */}
-        <div className="flex justify-center mt-4 w-11/12 md:w-full max-w-4xl">
-          <button
-            onClick={() => { audio.playClick(); onBack(); }}
-            className="game-btn game-btn-red text-base md:text-lg px-8 md:px-12 py-2 flex items-center gap-1"
-          >
-            <ChevronLeft size={18} className="md:w-[20px] md:h-[20px]" /> Back
-          </button>
+          {/* Back Button inside wood-board footer */}
+          <div className="flex justify-center pt-2">
+            <button
+              onClick={() => { audio.playClick(); onBack(); }}
+              className="game-btn game-btn-red text-base md:text-lg px-8 md:px-12 py-2 flex items-center gap-1"
+            >
+              <ChevronLeft size={18} className="md:w-[20px] md:h-[20px]" /> Back
+            </button>
+          </div>
+        </motion.div>
         </div>
       </div>
     </div>
@@ -227,119 +245,146 @@ export function StoryReader({ story, profile, score, onNext, onBack, onLogout, n
       >
         <UserProfileHeader profile={profile} score={score} onLogout={onLogout} />
 
-        <div className="flex-1 flex flex-col items-center justify-center px-4 py-8 gap-4">
-          <motion.div 
-            className="wood-board w-11/12 md:w-full max-w-3xl p-4 md:p-6 pt-12 md:pt-12 h-fit"
-          >
-            {/* Ribbon Header */}
-            <div className="absolute -top-5 md:-top-6 left-1/2 -translate-x-1/2 ribbon-blue text-base md:text-xl z-10 flex items-center gap-2 px-4 md:px-8 max-w-[88vw] md:max-w-[70vw] leading-tight">
-              <span className="truncate">{story.title}</span>
-            </div>
-
-            {/* Narration controls */}
-            <div className="flex items-center justify-center gap-2 mb-3 mt-1 flex-wrap">
-              {narState === 'idle' && (
-                <button
-                  onClick={handlePlay}
-                  aria-label="Play story narration"
-                  className="game-btn game-btn-green text-xs md:text-sm py-1.5 px-4 flex items-center gap-1.5"
-                >
-                  <Play fill="currentColor" size={14} /> Play Story
-                </button>
-              )}
-              {narState === 'playing' && (
-                <button
-                  onClick={handlePause}
-                  aria-label="Pause narration"
-                  className="game-btn game-btn-gold text-xs md:text-sm py-1.5 px-4 flex items-center gap-1.5"
-                >
-                  <Pause fill="currentColor" size={14} /> Pause
-                </button>
-              )}
-              {narState === 'paused' && (
-                <>
-                  <button
-                    onClick={handleResume}
-                    aria-label="Resume narration"
-                    className="game-btn game-btn-green text-xs md:text-sm py-1.5 px-4 flex items-center gap-1.5"
-                  >
-                    <Play fill="currentColor" size={14} /> Resume
-                  </button>
-                  <button
-                    onClick={handlePlay}
-                    aria-label="Restart narration from beginning"
-                    className="game-btn game-btn-blue text-xs md:text-sm py-1.5 px-3 flex items-center gap-1.5"
-                  >
-                    <RotateCcw size={14} /> Restart
-                  </button>
-                </>
-              )}
-              {narState !== 'idle' && (
-                <button
-                  onClick={handleStop}
-                  aria-label="Stop narration"
-                  className="game-btn game-btn-red text-xs md:text-sm py-1.5 px-3 flex items-center gap-1.5"
-                >
-                  <Square fill="currentColor" size={12} /> Stop
-                </button>
-              )}
-            </div>
-
-            {/* Parchment story body */}
-            <div className="parchment-inner p-4 md:p-8 mb-2 md:mb-0 max-h-[52vh] md:max-h-[58vh] overflow-y-auto mt-2">
-              {hasParaSentences
-                ? sentencesByPara.map((paraSentences, pIdx) => (
-                    <p
-                      key={pIdx}
-                      className="font-nunito text-[#4a2e12] font-semibold text-sm md:text-lg leading-relaxed md:leading-relaxed mb-3 md:mb-4 last:mb-0"
-                    >
-                      {paraSentences.length > 0
-                        ? paraSentences.map((s, sIdx) => (
-                            <span
-                              key={sIdx}
-                              className={`transition-colors duration-200 rounded ${
-                                s.globalIdx === activeSentenceIdx
-                                  ? 'bg-yellow-200/70 text-[#2a1a00]'
-                                  : ''
-                              }`}
-                            >
-                              {s.text}{' '}
-                            </span>
-                          ))
-                        : paragraphs[pIdx] /* fallback: plain text if no sentences parsed */
-                      }
-                    </p>
-                  ))
-                : paragraphs.map((para, i) => (
-                    <p key={i} className="font-nunito text-[#4a2e12] font-semibold text-sm md:text-lg leading-relaxed md:leading-relaxed mb-3 md:mb-4 last:mb-0">
-                      {para}
-                    </p>
-                  ))
-              }
-            </div>
-          </motion.div>
-
-          {/* Navigation */}
-          <div className="flex justify-center gap-4 md:gap-6 flex-wrap w-11/12 md:w-full max-w-3xl">
-            {!hideBack && (
-              <motion.button
-                onClick={onBack}
-                className="game-btn game-btn-blue text-sm md:text-xl py-2 md:py-3 px-6 md:px-10 flex items-center gap-1"
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
-              >
-                <ChevronLeft size={16} className="md:w-[20px] md:h-[20px]" /> Back
-              </motion.button>
-            )}
-
-            <motion.button
-              onClick={onNext}
-              className="game-btn game-btn-red text-sm md:text-xl py-2 md:py-3 px-6 md:px-10 flex items-center gap-1"
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
+        <div className="flex-1 flex items-center justify-center w-full px-4 md:px-8 py-6 my-auto">
+          <div className="flex flex-col lg:flex-row items-center justify-center gap-6 lg:gap-10 max-w-6xl mx-auto w-full">
+            
+            {/* Left side: Prominent Mascot Companion standing in scene */}
+            <motion.div
+              className="shrink-0 flex justify-center items-center"
+              initial={{ scale: 0.8, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              transition={{ type: 'spring', stiffness: 180, damping: 20 }}
             >
-              {nextLabel} <Play fill="currentColor" size={16} className="md:w-[20px] md:h-[20px]" />
-            </motion.button>
+              <StoryCompanion
+                emotion="happy"
+                size="hero"
+                speech={narState === 'playing' ? 'Listen carefully!' : 'Let\'s read together!'}
+              />
+            </motion.div>
+
+            {/* Centered Main Story Reader Wood Board */}
+            <motion.div 
+              className="wood-board flex-1 w-full max-w-5xl p-6 md:p-8 pt-14 md:pt-16 relative flex flex-col justify-between shadow-2xl"
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+            >
+              {/* Ribbon Header */}
+              <div className="absolute -top-5 md:-top-6 left-1/2 -translate-x-1/2 ribbon-blue text-base md:text-2xl z-10 flex items-center gap-2 px-6 md:px-10 max-w-[88vw] md:max-w-[70vw] leading-tight shadow-xl">
+                <span className="truncate">{story.title}</span>
+              </div>
+
+              {/* Top Instruction Pill & Narration Controls */}
+              <div className="flex items-center justify-between gap-2 mb-3 mt-1 flex-wrap px-1">
+                <div className="parchment-inner px-3 py-1.5 flex items-center gap-2 text-xs md:text-sm font-fredoka text-[#4a2e12]">
+                  <BookOpen size={16} /> Read the story:
+                </div>
+
+                <div className="flex items-center gap-2 flex-wrap">
+                  {narState === 'idle' && (
+                    <button
+                      onClick={handlePlay}
+                      aria-label="Play story narration"
+                      className="game-btn game-btn-green text-sm md:text-base py-2 px-6 flex items-center gap-2"
+                    >
+                      <Play fill="currentColor" size={18} /> Play Story
+                    </button>
+                  )}
+                  {narState === 'playing' && (
+                    <button
+                      onClick={handlePause}
+                      aria-label="Pause narration"
+                      className="game-btn game-btn-gold text-sm md:text-base py-2 px-6 flex items-center gap-2"
+                    >
+                      <Pause fill="currentColor" size={18} /> Pause
+                    </button>
+                  )}
+                  {narState === 'paused' && (
+                    <>
+                      <button
+                        onClick={handleResume}
+                        aria-label="Resume narration"
+                        className="game-btn game-btn-green text-sm md:text-base py-2 px-6 flex items-center gap-2"
+                      >
+                        <Play fill="currentColor" size={18} /> Resume
+                      </button>
+                      <button
+                        onClick={handlePlay}
+                        aria-label="Restart narration from beginning"
+                        className="game-btn game-btn-blue text-sm md:text-base py-2 px-4 flex items-center gap-2"
+                      >
+                        <RotateCcw size={16} /> Restart
+                      </button>
+                    </>
+                  )}
+                  {narState !== 'idle' && (
+                    <button
+                      onClick={handleStop}
+                      aria-label="Stop narration"
+                      className="game-btn game-btn-red text-sm md:text-base py-2 px-4 flex items-center gap-2"
+                    >
+                      <Square fill="currentColor" size={14} /> Stop
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Parchment story body */}
+              <div className="parchment-inner p-4 md:p-8 mb-4 max-h-[46vh] md:max-h-[52vh] overflow-y-auto mt-1 tv-projector-card">
+                {hasParaSentences
+                  ? sentencesByPara.map((paraSentences, pIdx) => (
+                      <p
+                        key={pIdx}
+                        className="font-nunito text-[#4a2e12] font-semibold text-base md:text-xl lg:text-2xl leading-relaxed md:leading-loose mb-4 md:mb-6 last:mb-0"
+                      >
+                        {paraSentences.length > 0
+                          ? paraSentences.map((s, sIdx) => (
+                              <span
+                                key={sIdx}
+                                className={`transition-colors duration-200 rounded ${
+                                  s.globalIdx === activeSentenceIdx
+                                    ? 'bg-yellow-200/80 text-[#2a1a00] font-bold px-1'
+                                    : ''
+                                }`}
+                              >
+                                {s.text}{' '}
+                              </span>
+                            ))
+                          : paragraphs[pIdx] /* fallback: plain text if no sentences parsed */
+                        }
+                      </p>
+                    ))
+                  : paragraphs.map((para, i) => (
+                      <p key={i} className="font-nunito text-[#4a2e12] font-semibold text-base md:text-xl lg:text-2xl leading-relaxed md:leading-loose mb-4 md:mb-6 last:mb-0">
+                        {para}
+                      </p>
+                    ))
+                }
+              </div>
+
+              {/* Navigation Buttons inside wood board footer */}
+              <div className="flex justify-center gap-4 md:gap-6 flex-wrap w-full pt-1">
+                {!hideBack && (
+                  <motion.button
+                    onClick={onBack}
+                    className="game-btn game-btn-blue text-lg md:text-xl py-2.5 px-8 md:px-12 flex items-center gap-2"
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                  >
+                    <ChevronLeft size={20} /> Back
+                  </motion.button>
+                )}
+
+                <motion.button
+                  onClick={onNext}
+                  className="game-btn game-btn-red text-lg md:text-xl py-2.5 px-8 md:px-12 flex items-center gap-2"
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                >
+                  {nextLabel} <ChevronRight size={20} />
+                </motion.button>
+              </div>
+
+            </motion.div>
           </div>
         </div>
       </motion.div>

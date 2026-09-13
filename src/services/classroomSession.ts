@@ -84,9 +84,60 @@ function uniqueCode(sessions: Record<string, ClassroomSession>): string {
   throw new Error('Failed to generate a unique session code. Please try again.');
 }
 
-// ─── MockSessionService ───────────────────────────────────────────────────────
+// ─── Real Internet Cloud Synchronization ───────────────────────────────────────
+/**
+ * Public, zero-config real-time pub/sub endpoint for cloud synchronization.
+ * Allows teacher and students on different devices anywhere on the internet
+ * (phones, tablets, laptops, different Wi-Fi networks) to connect seamlessly.
+ */
+const NTFY_BASE_URL = 'https://ntfy.sh';
 
-class MockSessionService implements ISessionService {
+async function publishCloudSession(code: string, session: ClassroomSession): Promise<void> {
+  try {
+    const topic = `sq_session_${code.toLowerCase().trim()}`;
+    await fetch(`${NTFY_BASE_URL}/${topic}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(session),
+    });
+  } catch {
+    // Network glitch — local cache is already updated
+  }
+}
+
+async function fetchCloudSession(code: string): Promise<ClassroomSession | null> {
+  const normCode = code.toUpperCase().trim();
+  const topic = `sq_session_${normCode.toLowerCase()}`;
+  try {
+    const res = await fetch(`${NTFY_BASE_URL}/${topic}/json?poll=1`);
+    if (!res.ok) return null;
+    const text = await res.text();
+    const lines = text.trim().split('\n').filter(Boolean);
+    let latest: ClassroomSession | null = null;
+    for (const line of lines) {
+      try {
+        const parsed = JSON.parse(line);
+        if (parsed.message) {
+          const payload = JSON.parse(parsed.message) as ClassroomSession;
+          if (payload && payload.code === normCode) {
+            latest = payload;
+          }
+        }
+      } catch {
+        // Skip non-JSON or malformed lines
+      }
+    }
+    return latest;
+  } catch {
+    return null;
+  }
+}
+
+// ─── CloudSessionService ───────────────────────────────────────────────────────
+
+class CloudSessionService implements ISessionService {
+
+  // ── createSession ──────────────────────────────────────────────────────────
 
   // ── createSession ──────────────────────────────────────────────────────────
 
@@ -96,6 +147,17 @@ class MockSessionService implements ISessionService {
 
     const code = uniqueCode(sessions);
 
+    const initialParticipants: ClassroomParticipant[] = (params.roster && params.roster.length > 0)
+      ? params.roster.map(r => ({
+          studentId:   `SQ-${randomChars(6)}`,
+          name:        r.name.trim(),
+          studentCode: r.studentCode.toUpperCase().trim(),
+          status:      'joined' as const,
+          score:       null,
+          submittedAt: null,
+        }))
+      : [];
+
     const session: ClassroomSession = {
       code,
       teacherName:  params.teacherName,
@@ -104,11 +166,15 @@ class MockSessionService implements ISessionService {
       storyId:      params.storyId,
       status:       'active',
       createdAt:    Date.now(),
-      participants: [],
+      participants: initialParticipants,
     };
 
     sessions[code] = session;
     writeSessions(sessions);
+
+    // Sync to cloud asynchronously
+    void publishCloudSession(code, session);
+
     return session;
   }
 
@@ -117,12 +183,18 @@ class MockSessionService implements ISessionService {
   async joinSession(
     rawCode: string,
     name: string,
+    studentCode: string,
     existingStudentId?: string,
   ): Promise<JoinSessionResult> {
     // Always normalize — students may type lowercase or include spaces
-    const code     = rawCode.toUpperCase().trim();
-    const sessions = readSessions();
-    const session  = sessions[code];
+    const code = rawCode.toUpperCase().trim();
+    const trimName = name.trim();
+    const trimStudentCode = studentCode.toUpperCase().trim();
+
+    // Try cloud first for multi-device sync, fallback to local storage
+    const cloudSession = await fetchCloudSession(code);
+    const sessions     = readSessions();
+    const session      = cloudSession ?? sessions[code];
 
     // ── Validation ────────────────────────────────────────────────────────────
 
@@ -154,9 +226,6 @@ class MockSessionService implements ISessionService {
     }
 
     // ── Idempotent re-join by studentId (page refresh) ──────────────────────
-    // If the student already has a participant ID (e.g. after a page refresh),
-    // return the existing record instead of creating a duplicate. (Fix H-4)
-
     if (existingStudentId) {
       const existing = session.participants.find(
         (p) => p.studentId === existingStudentId,
@@ -166,26 +235,40 @@ class MockSessionService implements ISessionService {
       }
     }
 
-    // ── Idempotent re-join by name (re-login after logout) ──────────────────
-    // When a student logs out, their onlineStudentId is lost. If they rejoin
-    // the same session with the same name, return their existing participant
-    // record instead of adding a duplicate row to the dashboard.
-    // Comparison is case-insensitive and trimmed so "Maria" = "maria" = "MARIA".
-
-    const existingByName = session.participants.find(
-      (p) => p.name.trim().toLowerCase() === name.trim().toLowerCase(),
+    // ── Validate student access code & name ────────────────────────────────
+    let matchingParticipant = session.participants.find(
+      (p) =>
+        p.name.trim().toLowerCase() === trimName.toLowerCase() &&
+        p.studentCode.toUpperCase().trim() === trimStudentCode,
     );
-    if (existingByName) {
-      return { success: true, session, studentId: existingByName.studentId };
+
+    if (!matchingParticipant) {
+      matchingParticipant = session.participants.find(
+        (p) => p.studentCode.toUpperCase().trim() === trimStudentCode,
+      );
     }
 
-    // ── Create new participant ────────────────────────────────────────────────
+    // If pre-registered roster exists in session and no match is found, reject
+    if (session.participants.length > 0 && !matchingParticipant) {
+      return {
+        success:   false,
+        session:   null,
+        studentId: null,
+        error:     'Invalid Student Access Code or Name. Please ask your teacher for your assigned code.',
+      };
+    }
 
+    if (matchingParticipant) {
+      return { success: true, session, studentId: matchingParticipant.studentId };
+    }
+
+    // ── Fallback dynamic participant ──────────────────────────────────────────
     const studentId = existingStudentId ?? `SQ-${randomChars(CODE_LENGTH)}`;
 
     const participant: ClassroomParticipant = {
       studentId,
-      name,
+      name: trimName,
+      studentCode: trimStudentCode,
       status:      'joined',
       score:       null,
       submittedAt: null,
@@ -199,18 +282,20 @@ class MockSessionService implements ISessionService {
     sessions[code] = updated;
     writeSessions(sessions);
 
+    // Sync updated participant list to cloud for all devices
+    void publishCloudSession(code, updated);
+
     return { success: true, session: updated, studentId };
   }
 
   // ── submitScore ────────────────────────────────────────────────────────────
 
   async submitScore(code: string, studentId: string, score: number): Promise<void> {
-    const sessions = readSessions();
-    const session  = sessions[code];
+    const normCode     = code.toUpperCase().trim();
+    const cloudSession = await fetchCloudSession(normCode);
+    const sessions     = readSessions();
+    const session      = cloudSession ?? sessions[normCode];
 
-    // Silently ignore if the session no longer exists or has already been
-    // ended by the teacher. The student's RewardScreen still displays their
-    // score correctly because it uses local lastEarned state — not this store.
     if (!session || session.status === 'ended') return;
 
     const idx = session.participants.findIndex((p) => p.studentId === studentId);
@@ -223,40 +308,60 @@ class MockSessionService implements ISessionService {
       submittedAt: Date.now(),
     };
 
-    sessions[code] = {
+    const updatedSession: ClassroomSession = {
       ...session,
       participants: session.participants.map((p, i) =>
         i === idx ? updatedParticipant : p,
       ),
     };
 
+    sessions[normCode] = updatedSession;
     writeSessions(sessions);
+
+    // Sync score to cloud for live teacher dashboard update across devices
+    void publishCloudSession(normCode, updatedSession);
   }
 
   // ── getLiveResults ─────────────────────────────────────────────────────────
 
   async getLiveResults(code: string): Promise<ClassroomSession | null> {
+    const normCode     = code.toUpperCase().trim();
+    const cloudSession = await fetchCloudSession(normCode);
+
+    if (cloudSession) {
+      const sessions = readSessions();
+      sessions[normCode] = cloudSession;
+      writeSessions(sessions);
+      return cloudSession;
+    }
+
     const sessions = readSessions();
-    return sessions[code] ?? null;
+    return sessions[normCode] ?? null;
   }
 
   // ── endSession ─────────────────────────────────────────────────────────────
 
   async endSession(code: string): Promise<void> {
-    const sessions = readSessions();
-    if (!sessions[code]) return;
+    const normCode     = code.toUpperCase().trim();
+    const cloudSession = await fetchCloudSession(normCode);
+    const sessions     = readSessions();
+    const session      = cloudSession ?? sessions[normCode];
 
-    sessions[code] = { ...sessions[code], status: 'ended' };
+    if (!session) return;
+
+    const endedSession: ClassroomSession = { ...session, status: 'ended' };
+    sessions[normCode] = endedSession;
     writeSessions(sessions);
+
+    void publishCloudSession(normCode, endedSession);
   }
 }
 
 // ─── Export ───────────────────────────────────────────────────────────────────
 
 /**
- * Typed as ISessionService (not MockSessionService) so no component
- * has access to mock-specific internals.
- *
- * To upgrade: replace `new MockSessionService()` with your implementation.
+ * Cloud-enabled Session Service: connects teachers and students seamlessly
+ * across real internet devices (phones, laptops, tablets).
  */
-export const sessionService: ISessionService = new MockSessionService();
+export const sessionService: ISessionService = new CloudSessionService();
+

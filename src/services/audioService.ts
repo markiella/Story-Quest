@@ -1,14 +1,12 @@
 /**
  * AudioService — Centralized audio singleton for Story Quest.
  *
- * Three independent subsystems:
- *   1. UI Sounds   — Web Audio API synthesized tones (no files required)
- *   2. Music       — Web Audio API ambient oscillator pads per screen
+ * Subsystems:
+ *   1. UI Sounds   — Playful, bouncy Web Audio synthesized marimba & chime tones
+ *   2. Music       — Upbeat, melodic, playful Web Audio arpeggio loops per screen
  *   3. Narration   — SpeechSynthesis API (with pre-generated MP3 fallback path)
  *
- * Components MUST NOT instantiate Audio objects directly.
  * All audio flows through this singleton via useAudio().
- *
  * Settings are persisted in localStorage under storyquest_audio_settings.
  */
 
@@ -39,20 +37,66 @@ const DEFAULT_SETTINGS: AudioSettings = {
   muted:           false,
 };
 
-const FADE_MS = 600; // music crossfade duration in milliseconds
+// ─── Note Frequencies (Hz) ─────────────────────────────────────────────────────
 
-/**
- * Chord frequencies (Hz) for each screen's ambient background music.
- * null = silence (no music for that screen).
- */
-const MUSIC_CONFIGS: Record<ScreenMusic, { freqs: number[]; wave: OscillatorType } | null> = {
-  intro:     { freqs: [261.63, 329.63, 392.00],        wave: 'sine'     }, // C major
-  category:  { freqs: [293.66, 369.99, 440.00],        wave: 'sine'     }, // D major
-  story:     { freqs: [196.00, 246.94, 293.66],        wave: 'sine'     }, // G major (lower)
-  sequencer: { freqs: [220.00, 261.63, 329.63],        wave: 'triangle' }, // A minor
-  reward:    { freqs: [523.25, 659.26, 783.99],        wave: 'sine'     }, // C major upper
-  teacher:   { freqs: [174.61, 220.00, 261.63],        wave: 'sine'     }, // F major
-  none:      null,
+const C3 = 130.81, D3 = 146.83, E3 = 164.81, F3 = 174.61, G3 = 196.00, A3 = 220.00;
+const C4 = 261.63, D4 = 293.66, E4 = 329.63, F4 = 349.23, G4 = 392.00, A4 = 440.00, B4 = 493.88;
+const C5 = 523.25, D5 = 587.33, E5 = 659.26, F5 = 698.46, G5 = 783.99, A5 = 880.00, B5 = 987.77;
+const C6 = 1046.50, D6 = 1174.66, E6 = 1318.51, G6 = 1567.98;
+
+// ─── Playful Music Configurations ─────────────────────────────────────────────
+
+interface PlayfulTrack {
+  bpm:       number;
+  melody:    number[];   // 16-step melody loop
+  bass:      number[];   // 4-step bouncy bass loop
+  wave:      OscillatorType;
+}
+
+const PLAYFUL_TRACKS: Record<ScreenMusic, PlayfulTrack | null> = {
+  // Intro: Bright, happy C-Major bouncy tune
+  intro: {
+    bpm: 124,
+    wave: 'triangle',
+    melody: [C4, E4, G4, C5, A4, G4, E4, G4, C4, E4, G4, C5, D5, C5, A4, G4],
+    bass:   [C3, G3, C3, G3],
+  },
+  // Category: Energetic, playful G-Major exploration melody
+  category: {
+    bpm: 128,
+    wave: 'triangle',
+    melody: [G4, B4, D5, G5, E5, D5, B4, D5, G4, B4, D5, E5, D5, B4, A4, G4],
+    bass:   [G3, D3, G3, D3],
+  },
+  // Story: Cozy, sweet, whimsical F-Major story reading tune
+  story: {
+    bpm: 108,
+    wave: 'sine',
+    melody: [F4, A4, C5, F5, D5, C5, A4, C5, F4, A4, C5, D5, C5, A4, G4, F4],
+    bass:   [F3, C3, F3, C3],
+  },
+  // Sequencer: Upbeat, rhythmic puzzle beat in C-Major Pentatonic
+  sequencer: {
+    bpm: 132,
+    wave: 'triangle',
+    melody: [E4, G4, A4, C5, D5, C5, A4, G4, E4, G4, A4, C5, E5, D5, C5, A4],
+    bass:   [C3, A3, F3, G3],
+  },
+  // Reward: Joyful victory celebration theme with happy bouncy arpeggio
+  reward: {
+    bpm: 136,
+    wave: 'triangle',
+    melody: [C5, E5, G5, C6, G5, E5, C5, E5, G5, C6, E6, D6, C6, G5, E5, C5],
+    bass:   [C3, E3, G3, C4],
+  },
+  // Teacher: Friendly warm theme
+  teacher: {
+    bpm: 116,
+    wave: 'sine',
+    melody: [F4, A4, C5, E5, D5, C5, A4, C5, F4, A4, C5, D5, C5, A4, G4, F4],
+    bass:   [F3, C3, F3, C3],
+  },
+  none: null,
 };
 
 // ─── AudioService class ───────────────────────────────────────────────────────
@@ -66,11 +110,9 @@ class AudioService {
   private effectsBus:  GainNode     | null = null;
 
   // ── Music state ──────────────────────────────────────────────────────────
-  private currentMusic:   ScreenMusic | null = null;
-  private musicNodes:     OscillatorNode[]   = [];
-  private musicLFOs:      OscillatorNode[]   = [];
-  private musicTrackGain: GainNode   | null  = null;
-  private musicFadeTimer: ReturnType<typeof setTimeout> | null = null;
+  private currentMusic:    ScreenMusic | null = null;
+  private musicTimer:      ReturnType<typeof setInterval> | null = null;
+  private stepIndex:       number = 0;
 
   // ── Narration state ──────────────────────────────────────────────────────
   private _narrationState: NarrationState = 'idle';
@@ -88,10 +130,6 @@ class AudioService {
 
   // ── Private: AudioContext ─────────────────────────────────────────────────
 
-  /**
-   * Lazily creates the AudioContext. Returns null if Web Audio is unavailable.
-   * The context is created once and reused — never recreated.
-   */
   private getCtx(): AudioContext | null {
     if (this.ctx && this.ctx.state !== 'closed') return this.ctx;
     try {
@@ -108,12 +146,12 @@ class AudioService {
 
       // Music sub-bus
       this.musicBus = this.ctx.createGain();
-      this.musicBus.gain.value = this.settings.musicVolume;
+      this.musicBus.gain.value = this.settings.muted ? 0 : this.settings.musicVolume;
       this.musicBus.connect(this.masterGain);
 
       // Effects sub-bus
       this.effectsBus = this.ctx.createGain();
-      this.effectsBus.gain.value = this.settings.effectsVolume;
+      this.effectsBus.gain.value = this.settings.muted ? 0 : this.settings.effectsVolume;
       this.effectsBus.connect(this.masterGain);
 
       return this.ctx;
@@ -122,10 +160,6 @@ class AudioService {
     }
   }
 
-  /**
-   * Resumes the AudioContext (required after user gesture in modern browsers).
-   * Returns false if Web Audio is unavailable.
-   */
   private resume(): boolean {
     const ctx = this.getCtx();
     if (!ctx) return false;
@@ -133,7 +167,7 @@ class AudioService {
     return true;
   }
 
-  // ── Private: Tone synthesis ───────────────────────────────────────────────
+  // ── Private: Playful Tone synthesis ───────────────────────────────────────
 
   private playTone(
     freq:     number,
@@ -141,258 +175,270 @@ class AudioService {
     peakGain: number        = 0.25,
     type:     OscillatorType = 'sine',
     delay:    number        = 0,
+    slideFreq?: number,
   ): void {
     if (this.settings.muted) return;
     if (!this.resume()) return;
-    const ctx       = this.ctx!;
+    const ctx        = this.ctx!;
     const effectsBus = this.effectsBus!;
 
-    const now = ctx.currentTime + delay;
+    const now  = ctx.currentTime + delay;
     const osc  = ctx.createOscillator();
     const gain = ctx.createGain();
 
     osc.type = type;
-    osc.frequency.value = freq;
+    osc.frequency.setValueAtTime(freq, now);
+    if (slideFreq) {
+      osc.frequency.exponentialRampToValueAtTime(slideFreq, now + duration);
+    }
+
     gain.gain.setValueAtTime(0, now);
     gain.gain.linearRampToValueAtTime(peakGain, now + 0.01);
-    gain.gain.linearRampToValueAtTime(0, now + duration);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + duration);
 
     osc.connect(gain);
     gain.connect(effectsBus);
     osc.start(now);
     osc.stop(now + duration + 0.05);
-    osc.onended = () => { try { osc.disconnect(); gain.disconnect(); } catch { /* already disconnected */ } };
+    osc.onended = () => { try { osc.disconnect(); gain.disconnect(); } catch { /* ok */ } };
   }
 
   private playSequence(
-    notes: Array<{ freq: number; delay: number; dur: number; gain?: number }>,
-    type:  OscillatorType = 'sine',
+    notes: Array<{ freq: number; delay: number; dur: number; gain?: number; type?: OscillatorType; slide?: number }>,
   ): void {
-    notes.forEach(n => this.playTone(n.freq, n.dur, n.gain ?? 0.25, type, n.delay));
+    notes.forEach(n => this.playTone(n.freq, n.dur, n.gain ?? 0.25, n.type ?? 'sine', n.delay, n.slide));
   }
 
-  // ── Public: UI Sounds ─────────────────────────────────────────────────────
+  // ── Public: Playful UI Sound Effects ──────────────────────────────────────
 
-  playClick():          void { this.playTone(440, 0.06, 0.2, 'sine'); }
-  playHover():          void { this.playTone(880, 0.03, 0.05, 'sine'); }
+  /** Bouncy marimba pop on button click */
+  playClick(): void {
+    this.playTone(520, 0.08, 0.25, 'triangle', 0, 780);
+  }
 
+  /** Gentle wooden chime hover tick */
+  playHover(): void {
+    this.playTone(880, 0.04, 0.08, 'sine');
+  }
+
+  /** Bouncy ascending marimba pop when picking up cards */
   playCardPickup(): void {
     this.playSequence([
-      { freq: 330, delay: 0,    dur: 0.07 },
-      { freq: 550, delay: 0.05, dur: 0.08 },
+      { freq: E5, delay: 0,    dur: 0.08, gain: 0.25, type: 'triangle' },
+      { freq: B5, delay: 0.05, dur: 0.10, gain: 0.30, type: 'triangle' },
     ]);
   }
 
+  /** Bouncy descending marimba drop when placing cards */
   playCardDrop(): void {
     this.playSequence([
-      { freq: 550, delay: 0,    dur: 0.06 },
-      { freq: 330, delay: 0.04, dur: 0.10 },
+      { freq: B5, delay: 0,    dur: 0.06, gain: 0.25, type: 'triangle' },
+      { freq: E5, delay: 0.04, dur: 0.10, gain: 0.30, type: 'triangle' },
     ]);
   }
 
-  /** C–E–G ascending arpeggio */
+  /** Cheerful major chord chime */
   playSuccess(): void {
     this.playSequence([
-      { freq: 523.25, delay: 0,    dur: 0.12 },
-      { freq: 659.26, delay: 0.12, dur: 0.12 },
-      { freq: 783.99, delay: 0.24, dur: 0.22 },
+      { freq: C5, delay: 0,    dur: 0.12, gain: 0.25, type: 'triangle' },
+      { freq: E5, delay: 0.08, dur: 0.12, gain: 0.25, type: 'triangle' },
+      { freq: G5, delay: 0.16, dur: 0.14, gain: 0.30, type: 'triangle' },
+      { freq: C6, delay: 0.26, dur: 0.25, gain: 0.35, type: 'triangle' },
     ]);
   }
 
-  playError(): void { this.playTone(180, 0.3, 0.25, 'sawtooth'); }
+  /** Playful boing/wobble effect on error */
+  playError(): void {
+    this.playTone(280, 0.25, 0.3, 'sawtooth', 0, 140);
+  }
 
+  /** Descending playful slide on reset */
   playReset(): void {
     this.playSequence([
-      { freq: 660, delay: 0,    dur: 0.08 },
-      { freq: 440, delay: 0.08, dur: 0.08 },
-      { freq: 220, delay: 0.16, dur: 0.12 },
+      { freq: G5, delay: 0,    dur: 0.08, gain: 0.2, type: 'triangle' },
+      { freq: E5, delay: 0.07, dur: 0.08, gain: 0.2, type: 'triangle' },
+      { freq: C5, delay: 0.14, dur: 0.12, gain: 0.2, type: 'triangle' },
     ]);
   }
 
-  /** 5-note ascending fanfare */
+  /** Upbeat 5-note victory fanfare */
   playReward(): void {
-    const freqs = [261.63, 329.63, 392.00, 523.25, 659.26];
-    this.playSequence(freqs.map((freq, i) => ({ freq, delay: i * 0.10, dur: 0.15, gain: 0.3 })));
+    const freqs = [C5, E5, G5, C6, E6];
+    this.playSequence(freqs.map((freq, i) => ({
+      freq,
+      delay: i * 0.08,
+      dur: 0.16,
+      gain: 0.32,
+      type: 'triangle',
+    })));
   }
 
-  /** Rapid high sparkle burst */
+  /** Sparkling high marimba burst */
   playConfetti(): void {
-    const freqs = [1047, 1175, 1319, 1397, 1568];
-    this.playSequence(freqs.map((freq, i) => ({ freq, delay: i * 0.04, dur: 0.06, gain: 0.15 })));
+    const freqs = [C6, D6, E6, G6, C6 * 2];
+    this.playSequence(freqs.map((freq, i) => ({
+      freq,
+      delay: i * 0.04,
+      dur: 0.07,
+      gain: 0.18,
+      type: 'sine',
+    })));
   }
 
-  playStudentJoin():    void { this.playTone(660, 0.18, 0.2, 'sine'); }
+  playStudentJoin(): void {
+    this.playTone(660, 0.18, 0.22, 'triangle');
+  }
 
   playSubmit(): void {
     this.playSequence([
-      { freq: 440, delay: 0,   dur: 0.10 },
-      { freq: 550, delay: 0.1, dur: 0.15 },
+      { freq: G4, delay: 0,    dur: 0.10, gain: 0.25, type: 'triangle' },
+      { freq: C5, delay: 0.08, dur: 0.15, gain: 0.30, type: 'triangle' },
     ]);
   }
 
   playSessionCreated(): void {
     this.playSequence([
-      { freq: 392, delay: 0,   dur: 0.10 },
-      { freq: 523, delay: 0.1, dur: 0.10 },
-      { freq: 659, delay: 0.2, dur: 0.18 },
+      { freq: G4, delay: 0,    dur: 0.10, gain: 0.25, type: 'triangle' },
+      { freq: C5, delay: 0.08, dur: 0.10, gain: 0.25, type: 'triangle' },
+      { freq: E5, delay: 0.16, dur: 0.18, gain: 0.30, type: 'triangle' },
     ]);
   }
 
   playSessionEnd(): void {
     this.playSequence([
-      { freq: 523, delay: 0,   dur: 0.10 },
-      { freq: 392, delay: 0.1, dur: 0.10 },
-      { freq: 261, delay: 0.2, dur: 0.20 },
+      { freq: E5, delay: 0,    dur: 0.10, gain: 0.25, type: 'triangle' },
+      { freq: C5, delay: 0.08, dur: 0.10, gain: 0.25, type: 'triangle' },
+      { freq: G4, delay: 0.16, dur: 0.20, gain: 0.25, type: 'triangle' },
     ]);
   }
 
-  // ── Public: Background Music ──────────────────────────────────────────────
+  /** Cheerful, age-appropriate opening fanfare for starting adventure */
+  playAppEntry(): void {
+    this.playSequence([
+      { freq: C5, delay: 0,    dur: 0.10, gain: 0.28, type: 'triangle' },
+      { freq: E5, delay: 0.08, dur: 0.10, gain: 0.28, type: 'triangle' },
+      { freq: G5, delay: 0.16, dur: 0.12, gain: 0.30, type: 'triangle' },
+      { freq: C6, delay: 0.24, dur: 0.22, gain: 0.35, type: 'triangle' },
+    ]);
+  }
 
-  /**
-   * Transition to a new background music track.
-   * Guard: same screen → no-op (prevents restarts on every render).
-   * Fade: current track fades out over FADE_MS, new track fades in.
-   */
+  // ── Public: Upbeat Playful Background Music ─────────────────────────────────
+
   playMusic(screen: ScreenMusic): void {
     if (screen === this.currentMusic) return;
+    this.stopMusic();
     this.currentMusic = screen;
 
-    // Cancel any in-progress fade
-    if (this.musicFadeTimer !== null) {
-      clearTimeout(this.musicFadeTimer);
-      this.musicFadeTimer = null;
-    }
+    const track = PLAYFUL_TRACKS[screen];
+    if (!track) return;
 
-    // Fade out existing track
-    if (this.musicTrackGain && this.ctx) {
-      const g = this.musicTrackGain;
-      const now = this.ctx.currentTime;
-      g.gain.cancelScheduledValues(now);
-      g.gain.linearRampToValueAtTime(0, now + FADE_MS / 1000);
-    }
+    this.stepIndex = 0;
+    const stepMs = (60 / track.bpm / 2) * 1000; // 8th note interval
 
-    // Capture old nodes for deferred cleanup
-    const oldNodes     = [...this.musicNodes];
-    const oldLFOs      = [...this.musicLFOs];
-    const oldTrackGain = this.musicTrackGain;
-    this.musicNodes     = [];
-    this.musicLFOs      = [];
-    this.musicTrackGain = null;
+    this.musicTimer = setInterval(() => {
+      if (this.settings.muted) return;
+      if (!this.resume()) return;
+      const ctx      = this.ctx!;
+      const musicBus = this.musicBus!;
+      if (!ctx || !musicBus) return;
 
-    const targetScreen = screen; // capture for closure
-    this.musicFadeTimer = setTimeout(() => {
-      // Cleanup old oscillators
-      oldNodes.forEach(n => { try { n.stop(); n.disconnect(); } catch { /* already stopped */ } });
-      oldLFOs.forEach(n  => { try { n.stop(); n.disconnect(); } catch { /* already stopped */ } });
-      oldTrackGain?.disconnect();
+      const now = ctx.currentTime;
+      const step = this.stepIndex;
+      this.stepIndex = (this.stepIndex + 1) % track.melody.length;
 
-      // Only start new track if screen hasn't changed during the fade
-      if (this.currentMusic === targetScreen) {
-        this.startMusicTrack(targetScreen);
+      // 1. Playful Melody note (marimba/toy-piano style)
+      const melFreq = track.melody[step];
+      if (melFreq) {
+        const osc  = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = track.wave;
+        osc.frequency.value = melFreq;
+
+        const baseGain = 0.14 * this.settings.musicVolume;
+        gain.gain.setValueAtTime(0, now);
+        gain.gain.linearRampToValueAtTime(baseGain, now + 0.008);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.18);
+
+        osc.connect(gain);
+        gain.connect(musicBus);
+        osc.start(now);
+        osc.stop(now + 0.22);
       }
-      this.musicFadeTimer = null;
-    }, FADE_MS + 50);
+
+      // 2. Bouncy Bass note on beat 1 & 3 of measure (every 4 steps)
+      if (step % 4 === 0 && track.bass.length > 0) {
+        const bassIdx  = Math.floor(step / 4) % track.bass.length;
+        const bassFreq = track.bass[bassIdx];
+        if (bassFreq) {
+          const bassOsc  = ctx.createOscillator();
+          const bassGain = ctx.createGain();
+          bassOsc.type = 'sine';
+          bassOsc.frequency.value = bassFreq;
+
+          const baseVolume = 0.18 * this.settings.musicVolume;
+          bassGain.gain.setValueAtTime(0, now);
+          bassGain.gain.linearRampToValueAtTime(baseVolume, now + 0.01);
+          bassGain.gain.exponentialRampToValueAtTime(0.001, now + 0.32);
+
+          bassOsc.connect(bassGain);
+          bassGain.connect(musicBus);
+          bassOsc.start(now);
+          bassOsc.stop(now + 0.35);
+        }
+      }
+
+      // 3. Gentle woodblock pulse on offbeats
+      if (step % 2 === 1) {
+        const tickOsc  = ctx.createOscillator();
+        const tickGain = ctx.createGain();
+        tickOsc.type = 'triangle';
+        tickOsc.frequency.setValueAtTime(1200, now);
+        tickOsc.frequency.exponentialRampToValueAtTime(400, now + 0.02);
+
+        const tickVolume = 0.03 * this.settings.musicVolume;
+        tickGain.gain.setValueAtTime(tickVolume, now);
+        tickGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.025);
+
+        tickOsc.connect(tickGain);
+        tickGain.connect(musicBus);
+        tickOsc.start(now);
+        tickOsc.stop(now + 0.03);
+      }
+
+    }, stepMs);
   }
 
-  private startMusicTrack(screen: ScreenMusic): void {
-    const config = MUSIC_CONFIGS[screen];
-    if (!config) return;
-    if (this.settings.muted) return;
-    if (!this.resume()) return;
-
-    const ctx      = this.ctx!;
-    const musicBus = this.musicBus!;
-
-    // Track gain — fades in
-    const trackGain = ctx.createGain();
-    trackGain.gain.setValueAtTime(0, ctx.currentTime);
-    trackGain.gain.linearRampToValueAtTime(1, ctx.currentTime + FADE_MS / 1000);
-    trackGain.connect(musicBus);
-
-    const oscillators: OscillatorNode[] = [];
-    const lfos:        OscillatorNode[] = [];
-
-    config.freqs.forEach((freq, i) => {
-      const osc     = ctx.createOscillator();
-      const oscGain = ctx.createGain();
-
-      osc.type = config.wave;
-      osc.frequency.value = freq;
-      // Keep each voice very subtle; divide by voice count so total level is consistent
-      oscGain.gain.value = 0.12 / config.freqs.length;
-
-      // Slow LFO for gentle tremolo
-      const lfo     = ctx.createOscillator();
-      const lfoGain = ctx.createGain();
-      lfo.frequency.value = 0.15 + i * 0.03; // slightly different per voice
-      lfoGain.gain.value = 0.02;
-      lfo.connect(lfoGain);
-      lfoGain.connect(oscGain.gain);
-
-      osc.connect(oscGain);
-      oscGain.connect(trackGain);
-
-      lfo.start();
-      osc.start();
-      oscillators.push(osc);
-      lfos.push(lfo);
-    });
-
-    this.musicNodes     = oscillators;
-    this.musicLFOs      = lfos;
-    this.musicTrackGain = trackGain;
-  }
-
-  /** Immediately stop all music (no fade). */
   stopMusic(): void {
     this.currentMusic = null;
-    if (this.musicFadeTimer !== null) {
-      clearTimeout(this.musicFadeTimer);
-      this.musicFadeTimer = null;
+    if (this.musicTimer !== null) {
+      clearInterval(this.musicTimer);
+      this.musicTimer = null;
     }
-    const nodes = [...this.musicNodes];
-    const lfos  = [...this.musicLFOs];
-    const gain  = this.musicTrackGain;
-    this.musicNodes     = [];
-    this.musicLFOs      = [];
-    this.musicTrackGain = null;
-    nodes.forEach(n => { try { n.stop(); n.disconnect(); } catch { /* ok */ } });
-    lfos.forEach(n  => { try { n.stop(); n.disconnect(); } catch { /* ok */ } });
-    gain?.disconnect();
   }
 
   // ── Public: Narration ─────────────────────────────────────────────────────
 
   getNarrationState(): NarrationState { return this._narrationState; }
 
-  /**
-   * Start narrating a story.
-   * Tries pre-generated audio file first; falls back to SpeechSynthesis.
-   * @param storyId   — used to construct /audio/stories/{id}.mp3 path
-   * @param text      — full story text for SpeechSynthesis fallback
-   * @param onBoundary — called with charIndex on each word/sentence boundary
-   * @param onEnd      — called when narration finishes naturally
-   */
   async startNarration(
     storyId:     string,
     text:        string,
     onBoundary?: (charIndex: number) => void,
     onEnd?:      () => void,
   ): Promise<void> {
-    this.stopNarration(); // cancel any existing narration cleanly
+    this.stopNarration();
     if (this.settings.muted) return;
 
     this._onBoundary = onBoundary ?? null;
     this._onEnd      = onEnd ?? null;
-    this._narrationState = 'playing'; // optimistic — corrected on error
+    this._narrationState = 'playing';
 
-    // Try pre-generated file first
     const audioUrl = `/audio/stories/${storyId}.mp3`;
     const hasFile  = await this.probeFile(audioUrl);
-    if (this._narrationState !== 'playing') return; // stopNarration() called during probe
+    if (this._narrationState !== 'playing') return;
 
     if (hasFile) {
-      this.startFileNarration(audioUrl);
+      this.startFileNarration(audioUrl, text);
     } else {
       this.startSpeechNarration(text);
     }
@@ -401,13 +447,17 @@ class AudioService {
   private async probeFile(url: string): Promise<boolean> {
     try {
       const res = await fetch(url, { method: 'HEAD' });
-      return res.ok;
+      const type = res.headers.get('content-type') || '';
+      if (type.includes('text/html') || type.includes('application/xhtml')) {
+        return false;
+      }
+      return res.ok && (type.includes('audio') || type.includes('octet-stream'));
     } catch {
       return false;
     }
   }
 
-  private startFileNarration(url: string): void {
+  private startFileNarration(url: string, fallbackText: string): void {
     const audio = new Audio(url);
     audio.volume      = Math.min(1, this.settings.narrationVolume * this.settings.masterVolume);
     audio.playbackRate = this.settings.narrationRate;
@@ -418,11 +468,14 @@ class AudioService {
       cb?.();
     };
     audio.onerror = () => {
-      this._narrationState = 'idle';
       this.narrationAudio = null;
+      this.startSpeechNarration(fallbackText);
     };
     this.narrationAudio = audio;
-    audio.play().catch(() => { this._narrationState = 'idle'; });
+    audio.play().catch(() => {
+      this.narrationAudio = null;
+      this.startSpeechNarration(fallbackText);
+    });
   }
 
   private startSpeechNarration(text: string): void {
@@ -431,15 +484,20 @@ class AudioService {
       return;
     }
 
+    window.speechSynthesis.cancel();
+    if (window.speechSynthesis.paused) {
+      window.speechSynthesis.resume();
+    }
+
     const utterance   = new SpeechSynthesisUtterance(text);
     utterance.lang    = 'en-US';
     utterance.rate    = this.settings.narrationRate;
-    utterance.volume  = this.settings.narrationVolume;
+    utterance.volume  = Math.min(1, this.settings.narrationVolume * this.settings.masterVolume);
 
-    // Voice selection — deferred to allow Chrome's async voice list
     const assignVoice = () => {
-      const voices   = speechSynthesis.getVoices();
-      const preferred = ['Microsoft David', 'Microsoft Aria', 'Google US English'];
+      const voices   = window.speechSynthesis.getVoices();
+      if (!voices || voices.length === 0) return;
+      const preferred = ['Microsoft David', 'Microsoft Aria', 'Google US English', 'Samantha', 'Alex', 'Victoria'];
       let voice: SpeechSynthesisVoice | undefined;
       for (const name of preferred) {
         voice = voices.find(v => v.name.includes(name));
@@ -449,18 +507,16 @@ class AudioService {
       if (voice)  utterance.voice = voice;
     };
 
-    if (speechSynthesis.getVoices().length > 0) {
-      assignVoice();
-    } else {
-      // Chrome: voices load asynchronously
-      speechSynthesis.onvoiceschanged = () => {
+    assignVoice();
+    if (window.speechSynthesis.onvoiceschanged !== undefined) {
+      window.speechSynthesis.onvoiceschanged = () => {
         assignVoice();
-        speechSynthesis.onvoiceschanged = null;
+        window.speechSynthesis.onvoiceschanged = null;
       };
     }
 
     utterance.onboundary = (e: SpeechSynthesisEvent) => {
-      if (e.name === 'word' || e.name === 'sentence') {
+      if (e.name === 'word' || e.name === 'sentence' || e.charIndex !== undefined) {
         this._onBoundary?.(e.charIndex);
       }
     };
@@ -472,10 +528,22 @@ class AudioService {
       cb?.();
     };
 
-    utterance.onerror = () => { this._narrationState = 'idle'; };
+    utterance.onerror = (e) => {
+      if (e.error !== 'canceled') {
+        this._narrationState = 'idle';
+      }
+    };
 
     this.utterance = utterance;
-    speechSynthesis.speak(utterance);
+
+    setTimeout(() => {
+      if (this._narrationState === 'playing') {
+        window.speechSynthesis.speak(utterance);
+        if (window.speechSynthesis.paused) {
+          window.speechSynthesis.resume();
+        }
+      }
+    }, 50);
   }
 
   pauseNarration(): void {
@@ -498,9 +566,8 @@ class AudioService {
     this._narrationState = 'playing';
   }
 
-  /** Cancel narration immediately. Safe to call at any time or in cleanup. */
   stopNarration(): void {
-    this._onEnd      = null; // prevent stale callback after unmount
+    this._onEnd      = null;
     this._onBoundary = null;
     if (this.narrationAudio) {
       this.narrationAudio.pause();
@@ -549,7 +616,6 @@ class AudioService {
     if (this.narrationAudio) {
       this.narrationAudio.volume = this.settings.narrationVolume;
     }
-    // SpeechSynthesis volume cannot be changed mid-utterance — takes effect on next play
     this.saveSettings();
   }
 
@@ -558,7 +624,6 @@ class AudioService {
     if (this.narrationAudio) {
       this.narrationAudio.playbackRate = r;
     }
-    // SpeechSynthesis rate cannot be changed mid-utterance — takes effect on next play
     this.saveSettings();
   }
 
@@ -568,7 +633,6 @@ class AudioService {
     this.saveSettings();
   }
 
-  /** Set muted state explicitly (e.g. on session restore). */
   setMuted(muted: boolean): void {
     if (this.settings.muted === muted) return;
     this.settings.muted = muted;
@@ -580,6 +644,12 @@ class AudioService {
     if (this.masterGain) {
       this.masterGain.gain.value = this.settings.muted ? 0 : this.settings.masterVolume;
     }
+    if (this.musicBus) {
+      this.musicBus.gain.value = this.settings.muted ? 0 : this.settings.musicVolume;
+    }
+    if (this.effectsBus) {
+      this.effectsBus.gain.value = this.settings.muted ? 0 : this.settings.effectsVolume;
+    }
     if (this.narrationAudio) {
       this.narrationAudio.volume = this.settings.muted ? 0 : this.settings.narrationVolume;
     }
@@ -587,8 +657,6 @@ class AudioService {
       this.pauseNarration();
     }
   }
-
-  // ── Private: Settings persistence ────────────────────────────────────────
 
   private loadSettings(): AudioSettings {
     try {
@@ -607,16 +675,8 @@ class AudioService {
   }
 }
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
-
 function clamp(v: number): number {
   return Math.max(0, Math.min(1, v));
 }
 
-// ─── Singleton export ─────────────────────────────────────────────────────────
-
-/**
- * Application-wide singleton. Import and use via useAudio() in components.
- * Do NOT call `new AudioService()` anywhere else.
- */
 export const audioService = new AudioService();

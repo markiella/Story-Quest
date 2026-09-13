@@ -5,6 +5,7 @@ import { categoryMeta } from '../data/stories';
 import type { Category, UserProfile } from '../types';
 import UserProfileHeader from './UserProfileHeader';
 import { useAudio } from '../hooks/useAudio';
+import StoryCompanion from './StoryCompanion';
 
 interface Props {
   profile: UserProfile;
@@ -43,62 +44,78 @@ export default function CategorySelection({ profile, score, onSelect, onLogout }
     <div className="bg-landscape w-full flex flex-col pb-10 flex-1 relative min-h-dvh">
       <UserProfileHeader profile={profile} score={score} onLogout={onLogout} />
 
-      <div className="w-full flex flex-col justify-center items-center flex-1 px-4 py-8">
-        <motion.div
-          className="wood-board w-11/12 md:w-full max-w-6xl px-6 md:px-12 pt-16 pb-10 h-fit"
-          initial={{ opacity: 0, y: 30 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.4 }}
-        >
-          {/* Ribbon Header */}
-          <div className="absolute -top-6 left-1/2 -translate-x-1/2 ribbon-blue text-lg md:text-2xl px-6 md:px-12 z-10 flex flex-nowrap items-center gap-3 whitespace-nowrap max-w-[90vw] overflow-hidden">
-            <BookOpen size={24} className="opacity-80 flex-shrink-0" />
-            <span className="truncate">Choose a Story Category</span>
-          </div>
-
+      <div className="flex-1 flex items-center justify-center w-full px-4 md:px-8 py-6 my-auto">
+        <div className="flex flex-col lg:flex-row items-center justify-center gap-6 lg:gap-10 max-w-7xl mx-auto w-full">
+          {/* Left Side Mascot Companion — Idle expression for Category Selection */}
           <motion.div
-            className={gridClass}
-            variants={containerVariants}
-            initial="hidden"
-            animate="visible"
+            className="shrink-0 flex justify-center items-center"
+            initial={{ scale: 0.8, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            transition={{ type: 'spring', stiffness: 180, damping: 20 }}
           >
-            {categories.map((cat) => {
-              const meta = categoryMeta[cat];
-
-              return (
-                <motion.button
-                  key={cat}
-                  variants={cardVariants}
-                  onClick={() => { audio.playClick(); onSelect(cat); }}
-                  onMouseEnter={() => audio.playHover()}
-                  className="relative overflow-hidden rounded-2xl border-[5px] border-[#4a2e12] shadow-xl text-center min-h-52 md:min-h-64 lg:min-h-72
-                    hover:scale-[1.03] active:scale-[0.97] transition-all duration-200 bg-black flex flex-col justify-end min-w-0 group"
-                >
-                  {/* Image Background */}
-                  <div
-                    className="absolute inset-0 bg-cover bg-center opacity-80 group-hover:opacity-100 transition-opacity"
-                    style={{ backgroundImage: `url(${meta.image})` }}
-                  />
-
-                  {/* Category Name — top bar */}
-                  <div className="absolute top-0 inset-x-0 bg-gradient-to-b from-black/80 to-transparent pt-3 pb-8">
-                    <h2 className="font-fredoka text-xl text-white text-stroke-primary drop-shadow-md">
-                      {cat}
-                    </h2>
-                  </div>
-
-                  {/* Description — bottom strip */}
-                  <div className="relative z-10 p-2 w-full bg-[#4a2e12]/90 border-t-2 border-[#8c5825]">
-                    <p className="font-nunito text-white/90 text-xs font-bold px-1 line-clamp-2">
-                      {meta.desc}
-                    </p>
-                  </div>
-                </motion.button>
-              );
-            })}
+            <StoryCompanion
+              emotion="idle"
+              size="hero"
+              speech="Pick a category to explore!"
+            />
           </motion.div>
-        </motion.div>
 
+          {/* Centered Main Category Board */}
+          <motion.div
+            className="wood-board flex-1 w-full max-w-6xl px-6 md:px-12 pt-16 pb-10 h-fit shadow-2xl"
+            initial={{ opacity: 0, y: 30 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.4 }}
+          >
+            {/* Ribbon Header */}
+            <div className="absolute -top-6 left-1/2 -translate-x-1/2 ribbon-blue text-xl md:text-2xl px-8 md:px-14 z-20 flex flex-nowrap items-center gap-3 whitespace-nowrap max-w-[90vw] overflow-hidden shadow-xl">
+              <BookOpen size={26} className="opacity-90 flex-shrink-0" />
+              <span className="truncate">Choose a Story Category</span>
+            </div>
+
+            <motion.div
+              className={gridClass}
+              variants={containerVariants}
+              initial="hidden"
+              animate="visible"
+            >
+              {categories.map((cat) => {
+                const meta = categoryMeta[cat];
+
+                return (
+                  <motion.button
+                    key={cat}
+                    variants={cardVariants}
+                    onClick={() => { audio.playClick(); onSelect(cat); }}
+                    onMouseEnter={() => audio.playHover()}
+                    className="relative overflow-hidden rounded-2xl border-[5px] border-[#4a2e12] shadow-xl text-center min-h-60 md:min-h-72 lg:min-h-80
+                      hover:scale-[1.03] active:scale-[0.97] transition-all duration-200 bg-black flex flex-col justify-end min-w-0 group"
+                  >
+                    {/* Image Background */}
+                    <div
+                      className="absolute inset-0 bg-cover bg-center opacity-85 group-hover:opacity-100 transition-opacity"
+                      style={{ backgroundImage: `url(${meta.image})` }}
+                    />
+
+                    {/* Category Name — top bar */}
+                    <div className="absolute top-0 inset-x-0 bg-gradient-to-b from-black/85 via-black/40 to-transparent pt-3.5 pb-10">
+                      <h2 className="font-fredoka text-xl md:text-2xl text-white text-stroke-primary drop-shadow-lg">
+                        {cat}
+                      </h2>
+                    </div>
+
+                    {/* Description — bottom strip */}
+                    <div className="relative z-10 p-2.5 w-full bg-[#4a2e12]/95 border-t-2 border-[#8c5825]">
+                      <p className="font-nunito text-white/95 text-xs md:text-sm font-bold px-1 line-clamp-2 leading-tight">
+                        {meta.desc}
+                      </p>
+                    </div>
+                  </motion.button>
+                );
+              })}
+            </motion.div>
+          </motion.div>
+        </div>
       </div>
     </div>
   );

@@ -20,6 +20,7 @@ import TeacherLobby       from './components/TeacherLobby';
 import TeacherDashboard   from './components/TeacherDashboard';
 import StudentJoin        from './components/StudentJoin';
 import AudioControls      from './components/AudioControls';
+import AmbientParticles   from './components/AmbientParticles';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -58,6 +59,7 @@ export default function App() {
   const [story,             setStory]             = useState<Story | null>(null);
   const [score,             setScore]             = useState(0);
   const [lastEarned,        setLastEarned]        = useState(0);
+  const [lastPlacedSlots,   setLastPlacedSlots]   = useState<(string | null)[]>([]);
   const [audio,             setAudio]             = useState(true);
   const [sequencerProgress, setSequencerProgress] = useState<AppSession['sequencerProgress']>(null);
 
@@ -83,6 +85,7 @@ export default function App() {
     setProfile(saved.profile);
     setScore(saved.score);
     setLastEarned(saved.lastEarned);
+    if (saved.lastPlacedSlots) setLastPlacedSlots(saved.lastPlacedSlots);
     setCategory(saved.category);
     setAudio(saved.audio);
     // Sync muted flag from session into AudioService on restore
@@ -153,6 +156,7 @@ export default function App() {
       storyId:           story?.id ?? null,
       score,
       lastEarned,
+      lastPlacedSlots,
       audio,
       sequencerProgress,
       role:              profile.role ?? null,
@@ -160,7 +164,7 @@ export default function App() {
       onlineStudentId,
     });
 
-    // Bug 1 fix: persist offline progress separately from AppSession so it
+    // Bug 1 fix: persist offline profile separately from AppSession so it
     // survives logout. Only written in Offline mode with a known grade.
     if (profile.mode === 'offline' && profile.grade) {
       saveOfflineProfile(profile.name, profile.grade, {
@@ -168,7 +172,7 @@ export default function App() {
         totalScore: score,
       });
     }
-  }, [profile, screen, category, story, score, lastEarned, audio, sequencerProgress, sessionCode, onlineStudentId]);
+  }, [profile, screen, category, story, score, lastEarned, lastPlacedSlots, audio, sequencerProgress, sessionCode, onlineStudentId]);
 
   // ─── Shared reset ─────────────────────────────────────────────────────────
 
@@ -178,6 +182,7 @@ export default function App() {
     setStory(null);
     setScore(0);
     setLastEarned(0);
+    setLastPlacedSlots([]);
     setAudio(true);
     setSequencerProgress(null);
     setSessionCode(null);
@@ -264,9 +269,10 @@ export default function App() {
 
   // ─── Handlers — sequencer complete (shared) ───────────────────────────────
 
-  function handleSequencerComplete(earned: number) {
+  function handleSequencerComplete(earned: number, slots?: (string | null)[]) {
     const roundScore = Math.max(SCORE_CLAMP_MIN, Math.min(SCORE_CLAMP_MAX, earned));
     setLastEarned(roundScore);
+    setLastPlacedSlots(slots || []);
     setSequencerProgress(null);
 
     if (profile?.mode === 'offline') {
@@ -326,6 +332,7 @@ export default function App() {
 
   return (
     <>
+    <AmbientParticles />
     {/* AudioControls floats above every screen — single mount, never re-mounts */}
     <AudioControls />
     <AnimatePresence mode="wait">
@@ -403,6 +410,8 @@ export default function App() {
         <motion.div key="reward" {...pageVariants} className="w-full">
           <RewardScreen
             profile={profile}
+            story={story}
+            placedSlots={lastPlacedSlots}
             totalScore={score}
             lastEarned={lastEarned}
             onNextLevel={handleNextLevel}
@@ -413,7 +422,7 @@ export default function App() {
       )}
 
       {/* ── Online Teacher: Lobby ↔ Dashboard ── */}
-      {screen === 'teacher' && profile && (
+      {screen === 'teacher' && profile && profile.role === 'teacher' && profile.mode === 'online' && (
         <motion.div key="teacher" {...pageVariants} className="w-full">
           <AnimatePresence mode="wait">
             {classroomSession ? (

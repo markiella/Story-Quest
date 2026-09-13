@@ -37,6 +37,7 @@ function StatusBadge({ status }: { status: ClassroomParticipant['status'] }) {
 export default function TeacherDashboard({ profile, session, onSessionEnd, onLogout }: Props) {
   const audio = useAudio();
   const [liveSession, setLiveSession] = useState<ClassroomSession>(session);
+  const [showAccessCodes, setShowAccessCodes] = useState(false);
 
   // Track participant counts across polls to detect new joins / submissions
   const prevJoinedRef    = useRef(session.participants.length);
@@ -50,8 +51,6 @@ export default function TeacherDashboard({ profile, session, onSessionEnd, onLog
   }, []);
 
   // Polling: refresh live results every 2 seconds.
-  // The `cancelled` flag prevents stale async callbacks from calling setState
-  // on an unmounted component — fixes H-1 from the architecture review.
   useEffect(() => {
     let cancelled = false;
 
@@ -69,11 +68,11 @@ export default function TeacherDashboard({ profile, session, onSessionEnd, onLog
           setLiveSession(data);
         }
       } catch {
-        // Polling failure — keep last known state, never crash (H-1 fix)
+        // Polling failure — keep last known state, never crash
       }
     }
 
-    poll(); // immediate first fetch — no 2-second delay on mount
+    poll();
     const id = setInterval(poll, 2000);
 
     return () => {
@@ -88,8 +87,7 @@ export default function TeacherDashboard({ profile, session, onSessionEnd, onLog
     [liveSession.storyId],
   );
 
-  // ── Sorted participants (M-4 fix: memoised — sorts only when data changes) ─
-  // Sort order: submitted (high → low score) → playing/joined (alphabetical)
+  // ── Sorted participants ───────────────────────────────────────────────────
   const sortedParticipants = useMemo(() => {
     return [...liveSession.participants].sort((a, b) => {
       if (a.status === 'submitted' && b.status !== 'submitted') return -1;
@@ -132,15 +130,15 @@ export default function TeacherDashboard({ profile, session, onSessionEnd, onLog
           {/* ── Session Code — large for projector visibility ─────────────── */}
           <div className="parchment-inner py-5 px-6 text-center">
             <p className="font-nunito text-[#8c5825] text-xs font-bold uppercase tracking-widest mb-1">
-              Session Code
+              Classroom Session Code
             </p>
             <p
-              className="font-fredoka text-5xl md:text-6xl text-[#4a2e12] tracking-[0.2em] drop-shadow-sm select-all"
+              className="font-fredoka text-6xl md:text-7xl lg:text-8xl text-[#4a2e12] tracking-[0.2em] drop-shadow-md select-all"
               aria-label={`Session code: ${liveSession.code.split('').join(' ')}`}
             >
               {liveSession.code}
             </p>
-            <p className="font-nunito text-[#8c5825] text-xs mt-1">
+            <p className="font-nunito text-[#8c5825] text-xs md:text-sm mt-1 font-bold">
               Students enter this code to join
             </p>
           </div>
@@ -150,7 +148,7 @@ export default function TeacherDashboard({ profile, session, onSessionEnd, onLog
             <p className="font-nunito text-white/70 text-[11px] uppercase tracking-wider">
               {liveSession.category}
             </p>
-            <p className="font-fredoka text-white text-lg drop-shadow-md leading-snug">
+            <p className="font-fredoka text-white text-lg md:text-2xl drop-shadow-md leading-snug">
               {storyTitle}
             </p>
           </div>
@@ -171,6 +169,19 @@ export default function TeacherDashboard({ profile, session, onSessionEnd, onLog
             ))}
           </div>
 
+          {/* ── Participant list header & privacy toggle ─────────────────── */}
+          <div className="flex justify-between items-center px-1">
+            <span className="font-fredoka text-white text-sm text-stroke-primary">
+              Student Roster ({sortedParticipants.length})
+            </span>
+            <button
+              onClick={() => setShowAccessCodes(prev => !prev)}
+              className="text-xs font-nunito font-bold px-3 py-1 bg-white/80 hover:bg-white text-[#4a2e12] rounded-lg border border-[#b57b37] transition-all shadow-sm flex items-center gap-1"
+            >
+              {showAccessCodes ? '🙈 Hide Access Codes' : '👁️ Show Access Codes (Private)'}
+            </button>
+          </div>
+
           {/* ── Participant list ──────────────────────────────────────────── */}
           <div className="parchment-inner rounded-xl overflow-hidden border-[3px] border-[#b57b37]">
             {sortedParticipants.length === 0 ? (
@@ -186,9 +197,16 @@ export default function TeacherDashboard({ profile, session, onSessionEnd, onLog
                       {i + 1}
                     </span>
                     {/* Name */}
-                    <span className="font-nunito font-bold text-[#4a2e12] flex-1 truncate text-sm">
-                      {p.name}
-                    </span>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-nunito font-bold text-[#4a2e12] truncate text-sm">
+                        {p.name}
+                      </p>
+                      {showAccessCodes && p.studentCode && (
+                        <p className="font-mono text-[10px] text-[#1a3a6e] font-bold">
+                          Code: {p.studentCode}
+                        </p>
+                      )}
+                    </div>
                     {/* Status badge */}
                     <StatusBadge status={p.status} />
                     {/* Score — only when submitted */}
@@ -203,15 +221,20 @@ export default function TeacherDashboard({ profile, session, onSessionEnd, onLog
             )}
           </div>
 
-          {/* ── End Session button ────────────────────────────────────────── */}
-          <motion.button
-            onClick={handleEnd}
-            className="game-btn game-btn-red py-2.5 px-10 self-center mt-1"
-            whileHover={{ scale: 1.03 }}
-            whileTap={{ scale: 0.97 }}
-          >
-            🛑 End Session
-          </motion.button>
+          {/* ── End Session button & Deployment Note ────────────────────────── */}
+          <div className="flex flex-col items-center gap-3 mt-1">
+            <p className="font-nunito text-[11px] text-white/80 text-center max-w-lg">
+              💡 <em>Classroom Guidance: Supervised use on school or Department of Education provided devices recommended.</em>
+            </p>
+            <motion.button
+              onClick={handleEnd}
+              className="game-btn game-btn-red py-2.5 px-10 self-center"
+              whileHover={{ scale: 1.03 }}
+              whileTap={{ scale: 0.97 }}
+            >
+              🛑 End Session
+            </motion.button>
+          </div>
         </motion.div>
       </div>
     </div>
