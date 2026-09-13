@@ -47,16 +47,18 @@ export default defineConfig({
         ]
       },
       workbox: {
+        skipWaiting: true,
+        clientsClaim: true,
         globPatterns: ['**/*.{js,css,html,ico,png,svg,mp3,json}'],
         runtimeCaching: [
           {
             urlPattern: ({ request }) => request.destination === 'image',
-            handler: 'CacheFirst',
+            handler: 'NetworkFirst',
             options: {
-              cacheName: 'images-cache',
+              cacheName: 'images-cache-v2',
               expiration: {
                 maxEntries: 60,
-                maxAgeSeconds: 30 * 24 * 60 * 60, // 30 Days
+                maxAgeSeconds: 7 * 24 * 60 * 60, // 7 Days
               },
             },
           },
@@ -67,7 +69,7 @@ export default defineConfig({
               request.destination === 'font',
             handler: 'StaleWhileRevalidate',
             options: {
-              cacheName: 'static-assets',
+              cacheName: 'static-assets-v2',
             },
           },
         ],

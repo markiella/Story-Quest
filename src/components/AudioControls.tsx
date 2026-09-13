@@ -1,8 +1,10 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Settings, X, Volume2, VolumeX, Music, Mic } from 'lucide-react';
+import { Settings, X, Volume2, VolumeX, Music, Mic, Type } from 'lucide-react';
 import { useAudio } from '../hooks/useAudio';
 import type { AudioSettings } from '../hooks/useAudio';
+import { fontSizeService, FONT_SIZE_OPTIONS } from '../services/fontSizeService';
+import type { FontSizeLevel } from '../services/fontSizeService';
 
 const SPEED_OPTIONS: { label: string; value: number }[] = [
   { label: '0.75×', value: 0.75 },
@@ -11,17 +13,19 @@ const SPEED_OPTIONS: { label: string; value: number }[] = [
   { label: '1.5×',  value: 1.5  },
 ];
 
-/** Floating audio settings panel — fixed bottom-right, layered above all screens. */
+/** Floating audio & accessibility settings panel — fixed bottom-right, layered above all screens. */
 export default function AudioControls() {
   const audio = useAudio();
 
-  const [open, setOpen]         = useState(false);
-  const [settings, setSettings] = useState<AudioSettings>(() => audio.getSettings());
+  const [open, setOpen]             = useState(false);
+  const [settings, setSettings]     = useState<AudioSettings>(() => audio.getSettings());
+  const [fontSize, setFontSizeState] = useState<FontSizeLevel>(() => fontSizeService.getFontSize());
 
-  // L-2 fix: re-sync settings when the panel is opened in case an external
-  // call (e.g. IntroScreen's mute toggle) changed the service state.
   useEffect(() => {
-    if (open) setSettings(audio.getSettings());
+    if (open) {
+      setSettings(audio.getSettings());
+      setFontSizeState(fontSizeService.getFontSize());
+    }
   }, [open, audio]);
 
   function update<K extends keyof AudioSettings>(key: K, value: AudioSettings[K]) {
@@ -53,6 +57,11 @@ export default function AudioControls() {
     const next = !settings.muted;
     update('muted', next);
   }
+  function handleFontSizeChange(level: FontSizeLevel) {
+    audio.playClick();
+    fontSizeService.setFontSize(level);
+    setFontSizeState(level);
+  }
   function handleToggleOpen() {
     audio.playClick();
     setOpen(o => !o);
@@ -70,13 +79,13 @@ export default function AudioControls() {
             animate={{ opacity: 1, scale: 1,    y: 0  }}
             exit={{   opacity: 0, scale: 0.85, y: 20  }}
             transition={{ type: 'spring', stiffness: 300, damping: 28 }}
-            className="wood-board w-72 p-5 pt-8 flex flex-col gap-4 shadow-2xl"
+            className="wood-board w-80 p-5 pt-8 flex flex-col gap-3 shadow-2xl max-h-[85vh] overflow-y-auto"
             role="dialog"
-            aria-label="Audio Settings"
+            aria-label="App & Accessibility Settings"
           >
             {/* Ribbon */}
-            <div className="absolute -top-5 left-1/2 -translate-x-1/2 ribbon-blue text-sm px-6 whitespace-nowrap flex items-center gap-2">
-              <Settings size={14} /> Audio Settings
+            <div className="absolute -top-5 left-1/2 -translate-x-1/2 ribbon-blue text-sm px-6 whitespace-nowrap flex items-center gap-2 shadow-lg z-20">
+              <Settings size={14} /> App Settings
             </div>
 
             {/* Mute toggle */}
@@ -84,7 +93,7 @@ export default function AudioControls() {
               onClick={handleToggleMute}
               aria-pressed={settings.muted}
               aria-label={settings.muted ? 'Unmute all audio' : 'Mute all audio'}
-              className={`game-btn py-2 text-sm flex items-center justify-center gap-2 w-full
+              className={`game-btn py-2 text-sm flex items-center justify-center gap-2 w-full mt-1
                 ${settings.muted ? 'game-btn-red' : 'game-btn-green'}`}
             >
               {settings.muted
@@ -92,8 +101,34 @@ export default function AudioControls() {
                 : <><Volume2 size={16} /> Mute All</>}
             </button>
 
+            {/* Flexible Font Size for Eyesight Accessibility */}
+            <div className="parchment-inner p-3">
+              <p className="font-fredoka text-[#4a2e12] text-xs mb-1.5 flex items-center gap-1.5">
+                <Type size={14} className="text-[#8c5825]" /> Text Size (Eyesight Scale)
+              </p>
+              <div className="grid grid-cols-4 gap-1">
+                {FONT_SIZE_OPTIONS.map(opt => (
+                  <button
+                    key={opt.value}
+                    onClick={() => handleFontSizeChange(opt.value)}
+                    aria-pressed={fontSize === opt.value}
+                    title={opt.desc}
+                    className={`py-1.5 px-1 rounded-lg text-xs font-fredoka border-2 transition-all text-center
+                      ${fontSize === opt.value
+                        ? 'bg-[#8c5825] text-white border-[#4a2e12] shadow-inner font-bold'
+                        : 'bg-[#ffeebd] text-[#8c5825] border-[#b57b37] hover:bg-[#ffdf91]'}`}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+              <p className="font-nunito text-[10px] text-[#8c5825] font-bold mt-1 text-center">
+                Global text size adjustment for enhanced readability.
+              </p>
+            </div>
+
             {/* Volume sliders */}
-            <div className="parchment-inner p-3 flex flex-col gap-3">
+            <div className="parchment-inner p-3 flex flex-col gap-2.5">
               <VolumeRow
                 label="Master"
                 icon={<Volume2 size={13} />}
@@ -130,7 +165,7 @@ export default function AudioControls() {
 
             {/* Narration speed */}
             <div className="parchment-inner p-3">
-              <p className="font-fredoka text-[#4a2e12] text-xs mb-2 flex items-center gap-1">
+              <p className="font-fredoka text-[#4a2e12] text-xs mb-1.5 flex items-center gap-1">
                 <Mic size={12} /> Narration Speed
               </p>
               <div className="flex gap-1.5">
@@ -156,7 +191,7 @@ export default function AudioControls() {
       {/* Toggle button */}
       <motion.button
         onClick={handleToggleOpen}
-        aria-label={open ? 'Close audio settings' : 'Open audio settings'}
+        aria-label={open ? 'Close app settings' : 'Open app settings'}
         aria-expanded={open}
         className={`w-12 h-12 rounded-full shadow-2xl border-4 flex items-center justify-center
           ${open
@@ -199,7 +234,7 @@ function VolumeRow({ label, icon, value, onChange, disabled, id }: VolumeRowProp
         disabled={disabled}
         onChange={e => onChange(parseFloat(e.target.value))}
         aria-label={`${label} volume`}
-        className="w-full accent-[#8c5825] disabled:opacity-40"
+        className="w-full accent-[#8c5825] disabled:opacity-40 cursor-pointer"
       />
     </div>
   );

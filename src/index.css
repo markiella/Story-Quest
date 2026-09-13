@@ -30,6 +30,28 @@
   --clr-gold-edge:    #734500;
 }
 
+/* ─── Global Flexible Font Sizing (Eyesight Accessibility) ─── */
+html {
+  font-size: 16px;
+  transition: font-size 0.2s ease-in-out;
+}
+
+html[data-font-size="small"] {
+  font-size: 13.5px;
+}
+
+html[data-font-size="medium"] {
+  font-size: 16px;
+}
+
+html[data-font-size="large"] {
+  font-size: 19px;
+}
+
+html[data-font-size="xlarge"] {
+  font-size: 22px;
+}
+
 /* ─── Base ──────────────────────────────────────────────── */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
